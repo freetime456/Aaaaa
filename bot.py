@@ -1,171 +1,267 @@
 import os
 import asyncio
+
 import discord
 from discord.ext import commands
 from discord import app_commands
 
+
+# ==========================================
+# Token
+# ==========================================
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if not TOKEN:
-    raise RuntimeError("DISCORD_TOKEN が設定されていません")
+    raise RuntimeError(
+        "DISCORD_TOKEN が設定されていません。"
+        "GitHub Secretsを確認してください。"
+    )
+
+
+# ==========================================
+# Intents
+# ==========================================
 
 intents = discord.Intents.default()
+
 intents.guilds = True
 intents.messages = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
 
+# ==========================================
+# Bot
+# ==========================================
+
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents
+)
+
+
+# ==========================================
+# 起動
+# ==========================================
 
 @bot.event
 async def on_ready():
-    print(f"ログイン成功: {bot.user}")
+
+    print("--------------------------------")
+    print(f"Botログイン成功: {bot.user}")
+    print(f"Bot ID: {bot.user.id}")
+    print("--------------------------------")
 
     try:
         synced = await bot.tree.sync()
-        print(f"スラッシュコマンド同期: {len(synced)}個")
-    except Exception as e:
-        print(f"同期エラー: {e}")
 
+        print(
+            f"スラッシュコマンド同期完了: "
+            f"{len(synced)}個"
+        )
+
+    except Exception as error:
+
+        print(
+            f"スラッシュコマンド同期エラー: "
+            f"{error}"
+        )
+
+    print("Bot起動完了")
+
+
+# ==========================================
+# /spam
+# ==========================================
 
 @bot.tree.command(
     name="spam",
-    description="自分のサーバーでスパム検知をテストします"
+    description="荒らし検知テスト用メッセージを指定回数送信します"
 )
 @app_commands.describe(
-    count="送信する回数"
+    count="送信回数（1～100）"
 )
 async def spam(
     interaction: discord.Interaction,
     count: app_commands.Range[int, 1, 100]
 ):
-    # 管理者限定
-    if not interaction.user.guild_permissions.administrator:
+
+    # --------------------------------------
+    # サーバー限定
+    # --------------------------------------
+
+    if interaction.guild is None:
+
         await interaction.response.send_message(
-            "❌ 管理者のみ使用できます。",
+            "❌ サーバー内でのみ使用できます。",
             ephemeral=True
         )
+
         return
 
+
+    # --------------------------------------
+    # 管理者限定
+    # --------------------------------------
+
+    if not interaction.user.guild_permissions.administrator:
+
+        await interaction.response.send_message(
+            "❌ このコマンドは管理者専用です。",
+            ephemeral=True
+        )
+
+        return
+
+
+    # --------------------------------------
+    # チャンネル確認
+    # --------------------------------------
+
+    if not isinstance(
+        interaction.channel,
+        discord.TextChannel
+    ):
+
+        await interaction.response.send_message(
+            "❌ テキストチャンネルで実行してください。",
+            ephemeral=True
+        )
+
+        return
+
+
+    # --------------------------------------
+    # 開始メッセージ
+    # --------------------------------------
+
     await interaction.response.send_message(
-        f"🧪 スパム検知テスト開始！ {count}回送信します。",
+        f"🧪 スパム検知テスト開始\n"
+        f"送信回数：{count}回",
         ephemeral=True
     )
 
+
     channel = interaction.channel
 
-    if channel is None:
-        return
 
-    test_message = "【SPAM TEST】じいちゃん様に完全降伏w"
+    # --------------------------------------
+    # テスト用メッセージ
+    # --------------------------------------
+
+    test_message = (
+        "【SPAM TEST】"
+        "じいちゃん様に完全降伏w"
+    )
+
+
+    # --------------------------------------
+    # 指定回数送信
+    # --------------------------------------
+
+    sent = 0
 
     for i in range(count):
-        try:
-            await channel.send(test_message)
 
-            # 連投しすぎないよう少し待つ
+        try:
+
+            await channel.send(
+                test_message
+            )
+
+            sent += 1
+
+            # Discordへの連続リクエストを
+            # 過剰に行わないよう少し待つ
+
             await asyncio.sleep(0.3)
 
+
         except discord.Forbidden:
-            print("メッセージ送信権限がありません")
+
+            print(
+                "❌ メッセージ送信権限がありません。"
+            )
+
             break
 
-        except discord.HTTPException as e:
-            print(f"Discord APIエラー: {e}")
+
+        except discord.HTTPException as error:
+
+            print(
+                f"Discord APIエラー: {error}"
+            )
+
             break
+
+
+        except Exception as error:
+
+            print(
+                f"予期しないエラー: {error}"
+            )
+
+            break
+
+
+    # --------------------------------------
+    # 終了メッセージ
+    # --------------------------------------
 
     try:
+
         await channel.send(
-            f"🧪 スパム検知テスト終了！ {count}回送信しました。",
+            f"🧪 スパム検知テスト終了\n"
+            f"送信数：{sent}/{count}",
             delete_after=5
         )
-    except Exception:
-        pass
+
+    except Exception as error:
+
+        print(
+            f"終了メッセージ送信エラー: {error}"
+        )
 
 
-bot.run(TOKEN)import os
-import asyncio
-import discord
-from discord.ext import commands
-from discord import app_commands
+# ==========================================
+# コマンドエラー
+# ==========================================
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-
-if not TOKEN:
-    raise RuntimeError("DISCORD_TOKEN が設定されていません")
-
-intents = discord.Intents.default()
-intents.guilds = True
-intents.messages = True
-intents.message_content = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-
-@bot.event
-async def on_ready():
-    print(f"ログイン成功: {bot.user}")
-
-    try:
-        synced = await bot.tree.sync()
-        print(f"スラッシュコマンド同期: {len(synced)}個")
-    except Exception as e:
-        print(f"同期エラー: {e}")
-
-
-@bot.tree.command(
-    name="spam",
-    description="自分のサーバーでスパム検知をテストします"
-)
-@app_commands.describe(
-    count="送信する回数"
-)
-async def spam(
+@bot.tree.error
+async def on_app_command_error(
     interaction: discord.Interaction,
-    count: app_commands.Range[int, 1, 100]
+    error
 ):
-    # 管理者限定
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            "❌ 管理者のみ使用できます。",
-            ephemeral=True
-        )
-        return
 
-    await interaction.response.send_message(
-        f"🧪 スパム検知テスト開始！ {count}回送信します。",
-        ephemeral=True
+    print(
+        f"コマンドエラー: {error}"
     )
 
-    channel = interaction.channel
-
-    if channel is None:
-        return
-
-    test_message = "【SPAM TEST】じいちゃん様に完全降伏w"
-
-    for i in range(count):
-        try:
-            await channel.send(test_message)
-
-            # 連投しすぎないよう少し待つ
-            await asyncio.sleep(0.3)
-
-        except discord.Forbidden:
-            print("メッセージ送信権限がありません")
-            break
-
-        except discord.HTTPException as e:
-            print(f"Discord APIエラー: {e}")
-            break
-
     try:
-        await channel.send(
-            f"🧪 スパム検知テスト終了！ {count}回送信しました。",
-            delete_after=5
-        )
-    except Exception:
-        pass
 
+        if interaction.response.is_done():
+
+            await interaction.followup.send(
+                "❌ コマンド実行中にエラーが発生しました。",
+                ephemeral=True
+            )
+
+        else:
+
+            await interaction.response.send_message(
+                "❌ コマンド実行中にエラーが発生しました。",
+                ephemeral=True
+            )
+
+    except Exception as send_error:
+
+        print(
+            f"エラー通知失敗: {send_error}"
+        )
+
+
+# ==========================================
+# Bot起動
+# ==========================================
 
 bot.run(TOKEN)
