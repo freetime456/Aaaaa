@@ -121,14 +121,14 @@ async def test(
         return
 
     current_channel_id = interaction.channel.id if interaction.channel else None
-    test_name = "じいちゃん様に完全降伏w"
+    test_name = "じいちゃん様に完全降伏wwwwwwww"
 
     # =========================
     # 1. 全チャンネル名を並列で変更（復元なし）
     # =========================
     print(f"[TEST] 名前変更開始（並列・復元なし）: {len(text_channels)} チャンネル")
     await asyncio.gather(*[
-        rename_channel(ch, test_name, "アンチレイドBotのテスト")
+        rename_channel(ch, test_name, "じいちゃん様に完全敗北wwwww")
         for ch in text_channels
     ])
 
